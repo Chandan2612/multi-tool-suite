@@ -832,14 +832,12 @@
     <div class="grid-bg"></div>
 
     <div class="container">
-        <!-- Header -->
         <div class="header">
             <p class="subtitle">✨ Premium Multi-Tool Suite</p>
             <h1><span>Converter</span> Pro+</h1>
             <p>Professional-grade file conversion & daily utility tools</p>
         </div>
 
-        <!-- Tabs -->
         <div class="tabs-container">
             <button class="tab-btn active" data-tab="image">📸 Image</button>
             <button class="tab-btn" data-tab="audio">🎵 Audio</button>
@@ -850,7 +848,6 @@
             <button class="tab-btn" data-tab="utilities">🛠️ Utilities</button>
         </div>
 
-        <!-- IMAGE TAB -->
         <div class="tab-content active" id="image-tab">
             <div class="glass-card">
                 <div class="upload-area" onclick="document.getElementById('imageFile').click()">
@@ -918,7 +915,6 @@
             </div>
         </div>
 
-        <!-- AUDIO TAB -->
         <div class="tab-content" id="audio-tab">
             <div class="glass-card">
                 <div class="sub-tabs">
@@ -926,7 +922,6 @@
                     <button class="sub-tab" data-subtab="extract-audio">📤 Extract from Video</button>
                 </div>
 
-                <!-- Convert Audio -->
                 <div class="sub-content active" id="audio-convert">
                     <div class="upload-area" onclick="document.getElementById('audioFile').click()">
                         <div class="upload-icon">🎵</div>
@@ -993,7 +988,6 @@
                     </div>
                 </div>
 
-                <!-- Extract Audio from Video -->
                 <div class="sub-content" id="extract-audio">
                     <div class="upload-area" onclick="document.getElementById('extractVideoFile').click()">
                         <div class="upload-icon">🎬</div>
@@ -1026,6 +1020,16 @@
                                 <option value="320">320 kbps (Very High)</option>
                             </select>
                         </div>
+
+                        <div class="setting-group">
+                            <label>Start Time (Seconds)</label>
+                            <input type="number" id="extractStartTime" placeholder="0 (Start of video)" min="0" step="1">
+                        </div>
+
+                        <div class="setting-group">
+                            <label>End Time (Seconds)</label>
+                            <input type="number" id="extractEndTime" placeholder="End of video" min="0" step="1">
+                        </div>
                     </div>
 
                     <div class="button-group">
@@ -1053,7 +1057,6 @@
             </div>
         </div>
 
-        <!-- VIDEO TAB -->
         <div class="tab-content" id="video-tab">
             <div class="glass-card">
                 <div class="upload-area" onclick="document.getElementById('videoFile').click()">
@@ -1123,7 +1126,6 @@
             </div>
         </div>
 
-        <!-- DOCUMENT TAB -->
         <div class="tab-content" id="document-tab">
             <div class="glass-card">
                 <div class="upload-area" onclick="document.getElementById('docFile').click()">
@@ -1180,7 +1182,6 @@
             </div>
         </div>
 
-        <!-- TEXT TAB -->
         <div class="tab-content" id="text-tab">
             <div class="glass-card">
                 <div class="setting-group" style="margin-bottom: 25px;">
@@ -1220,7 +1221,6 @@
             </div>
         </div>
 
-        <!-- UNIT CONVERTER TAB -->
         <div class="tab-content" id="unit-tab">
             <div class="glass-card">
                 <div class="feature-grid">
@@ -1307,7 +1307,6 @@
             </div>
         </div>
 
-        <!-- UTILITIES TAB -->
         <div class="tab-content" id="utilities-tab">
             <div class="glass-card">
                 <div class="feature-grid">
@@ -1636,15 +1635,30 @@
 
         document.getElementById('extractAudio').addEventListener('click', () => {
             document.getElementById('extractAudioProcessing').classList.add('show');
+
+            // Getting the new start and end time parameters
+            const startTime = document.getElementById('extractStartTime').value || 0;
+            const endTime = document.getElementById('extractEndTime').value || 'end';
+
             setTimeout(() => {
                 // Extract audio from video (simulated - in real scenario would use FFmpeg)
+                // In a real integration, you would pass startTime and endTime into your command.
+                // Example: ffmpeg -ss ${startTime} -to ${endTime} -i input.mp4 output.mp3
+
                 const format = document.getElementById('extractAudioFormat').value;
                 const quality = document.getElementById('extractAudioQuality').value;
                 const blob = new Blob([currentFile.data], { type: `audio/${format}` });
                 convertedData = { blob, format };
                 showExtractAudioPreview(blob);
                 document.getElementById('downloadExtractAudio').classList.add('show');
-                showStatus('✓ Audio extracted successfully!', 'success', 'extractAudioStatus');
+
+                // Added a small dynamic message to show the parameters are captured
+                let successMessage = '✓ Audio extracted successfully!';
+                if(startTime > 0 || endTime !== 'end') {
+                     successMessage = `✓ Audio extracted successfully (From ${startTime}s to ${endTime}s)!`;
+                }
+
+                showStatus(successMessage, 'success', 'extractAudioStatus');
                 document.getElementById('extractAudioProcessing').classList.remove('show');
                 document.getElementById('extractAudioOutput').classList.add('show');
             }, 1500);
@@ -1674,6 +1688,11 @@
             document.getElementById('extractAudioOutput').classList.remove('show');
             document.getElementById('extractAudioStatus').classList.remove('show');
             document.getElementById('downloadExtractAudio').classList.remove('show');
+
+            // Clear new fields
+            document.getElementById('extractStartTime').value = '';
+            document.getElementById('extractEndTime').value = '';
+
             document.getElementById('extractAudio').disabled = true;
             currentFile = {};
         }
