@@ -7,6 +7,7 @@
     <link href="https://fonts.googleapis.com/css2?family=Sora:wght@400;600;700&family=Space+Mono:wght@400;700&display=swap" rel="stylesheet">
     <script src="https://cdnjs.cloudflare.com/ajax/libs/FileSaver.js/2.0.5/FileSaver.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/lamejs/1.2.1/lame.min.js"></script>
     <style>
         * {
             margin: 0;
@@ -1002,38 +1003,18 @@
 
                     <div class="settings-grid">
                         <div class="setting-group">
-                            <label>Output Format</label>
-                            <select id="extractAudioFormat">
-                                <option value="mp3" selected>MP3 (Popular)</option>
-                                <option value="wav">WAV (Lossless)</option>
-                                <option value="aac">AAC (High Quality)</option>
-                                <option value="ogg">OGG (Compressed)</option>
-                            </select>
-                        </div>
-
-                        <div class="setting-group">
-                            <label>Quality</label>
-                            <select id="extractAudioQuality">
-                                <option value="128">128 kbps (Low)</option>
-                                <option value="192">192 kbps (Medium)</option>
-                                <option value="256" selected>256 kbps (High)</option>
-                                <option value="320">320 kbps (Very High)</option>
-                            </select>
-                        </div>
-
-                        <div class="setting-group">
                             <label>Start Time (Seconds)</label>
-                            <input type="number" id="extractStartTime" placeholder="0 (Start of video)" min="0" step="1">
+                            <input type="number" id="extractStartTime" value="0" min="0" step="0.1">
                         </div>
 
                         <div class="setting-group">
                             <label>End Time (Seconds)</label>
-                            <input type="number" id="extractEndTime" placeholder="End of video" min="0" step="1">
+                            <input type="number" id="extractEndTime" placeholder="Leave empty for full length" min="0" step="0.1">
                         </div>
                     </div>
 
                     <div class="button-group">
-                        <button class="btn btn-convert" id="extractAudio" disabled>📤 Extract Audio</button>
+                        <button class="btn btn-convert" id="extractAudio" disabled>📤 Extract Audio (MP3)</button>
                         <button class="btn btn-clear" onclick="resetExtractAudio()">✕ Clear</button>
                     </div>
 
@@ -1043,7 +1024,7 @@
                             <div class="loader-dot"></div>
                             <div class="loader-dot"></div>
                         </div>
-                        <p>Extracting audio from video...</p>
+                        <p>Extracting, trimming, and encoding to MP3...</p>
                     </div>
 
                     <div class="status" id="extractAudioStatus"></div>
@@ -1604,7 +1585,7 @@
             currentFile = {};
         }
 
-        // ========== EXTRACT AUDIO FROM VIDEO ==========
+        // ========== MODIFIED: EXTRACT AUDIO FROM VIDEO & ENCODE MP3 ==========
         document.getElementById('extractVideoFile').addEventListener('change', handleExtractVideoSelect);
 
         function handleExtractVideoSelect(e) {
@@ -1612,8 +1593,18 @@
             if (!file) return;
 
             currentFile = { type: 'video', file, originalSize: file.size };
-            const reader = new FileReader();
 
+            // Getting video duration for the UI placeholder
+            const video = document.createElement('video');
+            video.preload = 'metadata';
+            video.onloadedmetadata = () => {
+                currentFile.duration = video.duration;
+                document.getElementById('extractEndTime').placeholder = `Max length: ${video.duration.toFixed(1)}s`;
+                URL.revokeObjectURL(video.src);
+            };
+            video.src = URL.createObjectURL(file);
+
+            const reader = new FileReader();
             reader.onload = (event) => {
                 currentFile.data = event.target.result;
                 showExtractVideoInfo(file);
@@ -1633,35 +1624,87 @@
             info.classList.add('show');
         }
 
-        document.getElementById('extractAudio').addEventListener('click', () => {
+        document.getElementById('extractAudio').addEventListener('click', async () => {
             document.getElementById('extractAudioProcessing').classList.add('show');
+            document.getElementById('extractAudioOutput').classList.remove('show');
 
-            // Getting the new start and end time parameters
-            const startTime = document.getElementById('extractStartTime').value || 0;
-            const endTime = document.getElementById('extractEndTime').value || 'end';
+            try {
+                // Time inputs
+                const startTime = parseFloat(document.getElementById('extractStartTime').value) || 0;
+                let endTime = parseFloat(document.getElementById('extractEndTime').value);
+                if (isNaN(endTime) || endTime <= 0) endTime = currentFile.duration || 999999;
 
-            setTimeout(() => {
-                // Extract audio from video (simulated - in real scenario would use FFmpeg)
-                // In a real integration, you would pass startTime and endTime into your command.
-                // Example: ffmpeg -ss ${startTime} -to ${endTime} -i input.mp4 output.mp3
+                // Set up AudioContext to decode video audio array buffer
+                const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
 
-                const format = document.getElementById('extractAudioFormat').value;
-                const quality = document.getElementById('extractAudioQuality').value;
-                const blob = new Blob([currentFile.data], { type: `audio/${format}` });
-                convertedData = { blob, format };
-                showExtractAudioPreview(blob);
-                document.getElementById('downloadExtractAudio').classList.add('show');
+                // Decode using a sliced copy to prevent array buffer detachment errors upon repeat uses
+                const bufferCopy = currentFile.data.slice(0);
+                const audioBuffer = await audioCtx.decodeAudioData(bufferCopy);
 
-                // Added a small dynamic message to show the parameters are captured
-                let successMessage = '✓ Audio extracted successfully!';
-                if(startTime > 0 || endTime !== 'end') {
-                     successMessage = `✓ Audio extracted successfully (From ${startTime}s to ${endTime}s)!`;
+                const sampleRate = audioBuffer.sampleRate;
+                const channels = audioBuffer.numberOfChannels;
+
+                // Converting time to frames
+                const startOffset = Math.max(0, Math.floor(startTime * sampleRate));
+                const endOffset = Math.min(audioBuffer.length, Math.floor(endTime * sampleRate));
+
+                if (startOffset >= endOffset) {
+                    throw new Error("Invalid time range. Start time must be less than end time.");
                 }
 
-                showStatus(successMessage, 'success', 'extractAudioStatus');
+                // Setup lamejs to encode MP3 natively
+                const mp3encoder = new lamejs.Mp3Encoder(channels, sampleRate, 128); // 128 kbps
+                const mp3Data = [];
+
+                const left = audioBuffer.getChannelData(0);
+                const right = channels > 1 ? audioBuffer.getChannelData(1) : left;
+
+                const sampleBlockSize = 1152; // Lame standard
+                for (let i = startOffset; i < endOffset; i += sampleBlockSize) {
+                    const chunk = Math.min(sampleBlockSize, endOffset - i);
+                    const leftChunk = new Int16Array(chunk);
+                    const rightChunk = new Int16Array(chunk);
+
+                    for (let j = 0; j < chunk; j++) {
+                        // Float32 to Int16 conversion for LameJS
+                        leftChunk[j] = Math.max(-32768, Math.min(32767, left[i + j] * 32768));
+                        if (channels > 1) {
+                            rightChunk[j] = Math.max(-32768, Math.min(32767, right[i + j] * 32768));
+                        }
+                    }
+
+                    let mp3buf;
+                    if (channels === 1) {
+                        mp3buf = mp3encoder.encodeBuffer(leftChunk);
+                    } else {
+                        mp3buf = mp3encoder.encodeBuffer(leftChunk, rightChunk);
+                    }
+
+                    if (mp3buf.length > 0) {
+                        mp3Data.push(mp3buf);
+                    }
+                }
+
+                const mp3buf = mp3encoder.flush();
+                if (mp3buf.length > 0) {
+                    mp3Data.push(mp3buf);
+                }
+
+                // Create the final strict MP3 blob
+                const blob = new Blob(mp3Data, { type: 'audio/mp3' });
+                convertedData = { blob, format: 'mp3' };
+
+                showExtractAudioPreview(blob);
+                document.getElementById('downloadExtractAudio').classList.add('show');
+                showStatus('✓ Audio trimmed and extracted successfully!', 'success', 'extractAudioStatus');
                 document.getElementById('extractAudioProcessing').classList.remove('show');
                 document.getElementById('extractAudioOutput').classList.add('show');
-            }, 1500);
+
+            } catch (error) {
+                console.error(error);
+                showStatus('❌ Extraction error: ' + error.message, 'error', 'extractAudioStatus');
+                document.getElementById('extractAudioProcessing').classList.remove('show');
+            }
         });
 
         function showExtractAudioPreview(blob) {
@@ -1677,8 +1720,8 @@
         }
 
         document.getElementById('downloadExtractAudio').addEventListener('click', () => {
-            const format = document.getElementById('extractAudioFormat').value;
-            saveFile(convertedData.blob, `extracted_audio.${format}`);
+            // It will strictly download as .mp3 based on our conversions
+            saveFile(convertedData.blob, `extracted_audio.${convertedData.format}`);
             showStatus('✓ Download started!', 'success', 'extractAudioStatus');
         });
 
@@ -1688,11 +1731,6 @@
             document.getElementById('extractAudioOutput').classList.remove('show');
             document.getElementById('extractAudioStatus').classList.remove('show');
             document.getElementById('downloadExtractAudio').classList.remove('show');
-
-            // Clear new fields
-            document.getElementById('extractStartTime').value = '';
-            document.getElementById('extractEndTime').value = '';
-
             document.getElementById('extractAudio').disabled = true;
             currentFile = {};
         }
